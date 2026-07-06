@@ -59,17 +59,26 @@ def create_project(
     current_user: Annotated[UserModel, Depends(get_current_user)],
     background_tasks: BackgroundTasks,
 ) -> dict:
-    """Create a new project owned by the authenticated user.
+    """Create a new project owned by the authenticated user."""
+    # Daily creation limit check (except for whitelisted email)
+    if current_user.email != "anshulbadoni@gmail.com":
+        import datetime
+        from src.models.project_model import ProjectModel
+        limit_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+        created_today = (
+            db.query(ProjectModel)
+            .filter(
+                ProjectModel.owner_id == current_user.id,
+                ProjectModel.created_at >= limit_time
+            )
+            .count()
+        )
+        if created_today >= 1:
+            raise HTTPException(
+                status_code=429,
+                detail="Daily limit reached. You can only add 1 repository per day. Upgrade for unlimited access."
+            )
 
-    Args:
-        payload: Validated project creation data.
-        db: Injected database session.
-        current_user: Authenticated user (from JWT).
-        background_tasks: Background tasks runner.
-
-    Returns:
-        Formatted response dictionary with created project data.
-    """
     controller = ProjectController(db)
     return controller.create_project(payload=payload, user_id=current_user.id, background_tasks=background_tasks)
 

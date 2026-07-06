@@ -13,6 +13,7 @@ from src.routes.oauth_routes import router as oauth_router
 from src.routes.project_routes import router as project_router
 
 app = FastAPI(
+    root_path="/documind",
     title="FastAPI Backend",
     description="Production-ready FastAPI backend with clean layered architecture",
     version="1.0.0",

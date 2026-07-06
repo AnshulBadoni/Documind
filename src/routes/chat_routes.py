@@ -15,6 +15,31 @@ from src.services.DTO import ResponseDto
 router = APIRouter(prefix="", tags=["Codebase Chat"])
 
 
+def check_daily_question_limit(db: Session, user: UserModel):
+    """Enforce daily question limit of 5 for non-whitelisted users."""
+    if user.email == "anshulbadoni@gmail.com":
+        return
+
+    import datetime
+    from src.models.chat_model import ChatMessageModel
+
+    limit_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+    questions_today = (
+        db.query(ChatMessageModel)
+        .filter(
+            ChatMessageModel.user_id == user.id,
+            ChatMessageModel.role == "user",
+            ChatMessageModel.created_at >= limit_time
+        )
+        .count()
+    )
+    if questions_today >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Daily limit reached. You can only ask 5 questions per day. Upgrade for unlimited access."
+        )
+
+
 @router.post("/projects/{project_id}/chat", response_model=dict)
 def chat_about_project(
     project_id: int,
@@ -22,14 +47,23 @@ def chat_about_project(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> dict:
-    """Ask questions about the project's codebase.
+    """Ask questions about the project's codebase."""
+    # Enforce daily limit
+    check_daily_question_limit(db, current_user)
 
-    Validates that the project belongs to the authenticated user first.
-    """
-    # 1. Project ownership validation
+    # Project access validation (owner or shared)
+    from src.models.project_share_model import ProjectShareModel
+    from sqlalchemy import or_
     project = (
         db.query(ProjectModel)
-        .filter(ProjectModel.id == project_id, ProjectModel.owner_id == current_user.id)
+        .outerjoin(ProjectShareModel, ProjectModel.id == ProjectShareModel.project_id)
+        .filter(
+            ProjectModel.id == project_id,
+            or_(
+                ProjectModel.owner_id == current_user.id,
+                ProjectShareModel.user_id == current_user.id
+            )
+        )
         .first()
     )
     if not project:
@@ -66,10 +100,22 @@ def chat_about_project_stream(
     current_user: Annotated[UserModel, Depends(get_current_user)],
 ):
     """Ask questions about the project's codebase and receive a streaming event-stream response (SSE)."""
-    # 1. Project ownership validation
+    # Enforce daily limit
+    check_daily_question_limit(db, current_user)
+
+    # Project access validation (owner or shared)
+    from src.models.project_share_model import ProjectShareModel
+    from sqlalchemy import or_
     project = (
         db.query(ProjectModel)
-        .filter(ProjectModel.id == project_id, ProjectModel.owner_id == current_user.id)
+        .outerjoin(ProjectShareModel, ProjectModel.id == ProjectShareModel.project_id)
+        .filter(
+            ProjectModel.id == project_id,
+            or_(
+                ProjectModel.owner_id == current_user.id,
+                ProjectShareModel.user_id == current_user.id
+            )
+        )
         .first()
     )
     if not project:
