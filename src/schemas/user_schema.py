@@ -14,7 +14,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for user registration requests."""
 
-    username: str = Field(..., min_length=2, max_length=255)
+    username: str | None = Field(default=None, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
 
 

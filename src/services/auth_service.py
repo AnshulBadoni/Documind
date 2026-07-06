@@ -41,9 +41,10 @@ class AuthService:
             raise ValueError("Email already registered")
 
         hashed_pw: str = hash_password(payload.password)
+        username = payload.username or payload.email.split("@")[0]
         new_user: UserModel = UserModel(
             email=payload.email,
-            username=payload.username,
+            username=username,
             hashed_password=hashed_pw,
         )
         self.db.add(new_user)
