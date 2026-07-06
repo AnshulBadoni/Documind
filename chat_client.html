@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documind Codebase Assistant</title>
+    <!-- Modern Premium Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --container-bg: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --primary-glow: rgba(99, 102, 241, 0.15);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --user-bubble: #4f46e5;
+            --assistant-bubble: rgba(31, 41, 55, 0.8);
+            --accent: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+            padding: 20px;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 900px;
+            height: 85vh;
+            background: var(--container-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Top Config Header */
+        .config-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            background: rgba(10, 15, 30, 0.4);
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .input-group label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .input-group input {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: var(--text-main);
+            font-size: 0.875rem;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .input-group input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+
+        /* Chat Area */
+        .chat-messages {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            scroll-behavior: smooth;
+        }
+
+        .message-row {
+            display: flex;
+            width: 100%;
+        }
+
+        .message-row.user {
+            justify-content: flex-end;
+        }
+
+        .message-row.assistant {
+            justify-content: flex-start;
+        }
+
+        .bubble {
+            max-width: 75%;
+            padding: 14px 18px;
+            border-radius: 18px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .message-row.user .bubble {
+            background: var(--user-bubble);
+            color: #ffffff;
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+        }
+
+        .message-row.assistant .bubble {
+            background: var(--assistant-bubble);
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .sources-box {
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .source-tag {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-family: monospace;
+        }
+
+        /* Message Input Area */
+        .chat-input-area {
+            padding: 20px 24px;
+            border-top: 1px solid var(--border-color);
+            background: rgba(10, 15, 30, 0.4);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .message-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 16px;
+            color: var(--text-main);
+            font-size: 0.95rem;
+            outline: none;
+            resize: none;
+            height: 54px;
+            max-height: 150px;
+            transition: all 0.2s;
+        }
+
+        .message-input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+
+        .send-btn {
+            background: var(--primary);
+            border: none;
+            color: white;
+            padding: 0 24px;
+            height: 54px;
+            border-radius: 14px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+        }
+
+        .send-btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .send-btn:active {
+            transform: translateY(1px);
+        }
+
+        .send-btn:disabled {
+            background: rgba(99, 102, 241, 0.4);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Loading Spinner */
+        .loading-dots {
+            display: inline-flex;
+            gap: 4px;
+            align-items: center;
+            padding: 8px 12px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="chat-container">
+        <!-- Configuration Headers -->
+        <div class="config-header">
+            <div class="input-group">
+                <label for="api-url">API Server URL</label>
+                <input type="text" id="api-url" value="http://127.0.0.1:8000" placeholder="API endpoint">
+            </div>
+            <div class="input-group">
+                <label for="project-id">Project ID</label>
+                <input type="number" id="project-id" value="5" placeholder="ID">
+            </div>
+            <div class="input-group">
+                <label for="session-id">Session ID</label>
+                <input type="text" id="session-id" value="default" placeholder="default">
+            </div>
+            <div class="input-group" style="grid-column: span 2;">
+                <label for="auth-token">Bearer JWT Token</label>
+                <input type="text" id="auth-token" placeholder="Paste login token here">
+            </div>
+        </div>
+
+        <!-- Chat Messages Panel -->
+        <div class="chat-messages" id="chat-messages">
+            <div class="message-row assistant">
+                <div class="bubble">
+                    Hello! Provide your API configurations above and ask any question about the codebase.
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Box -->
+        <div class="chat-input-area">
+            <textarea class="message-input" id="message-input" placeholder="Ask something about the codebase... (Enter to send)" rows="1"></textarea>
+            <button class="send-btn" id="send-btn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const chatMessages = document.getElementById('chat-messages');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        // Handle Enter keypress for quick submission
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const apiUrl = document.getElementById('api-url').value.trim();
+            const projectId = document.getElementById('project-id').value.trim();
+            const token = document.getElementById('auth-token').value.trim();
+            const sessionId = document.getElementById('session-id').value.trim();
+            const query = messageInput.value.trim();
+
+            if (!query) return;
+            if (!projectId) {
+                alert("Please provide a valid Project ID.");
+                return;
+            }
+
+            // Append User Bubble
+            appendMessage('user', query);
+            messageInput.value = '';
+            
+            // Set loading state
+            sendBtn.disabled = true;
+            const loadingBubbleId = appendLoadingBubble();
+
+            try {
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                // Call the streaming endpoint
+                const response = await fetch(`${apiUrl}/projects/${projectId}/chat/stream`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        message: query,
+                        session_id: sessionId
+                    })
+                });
+
+                removeLoadingBubble(loadingBubbleId);
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    const errMsg = data.message || `API error (${response.status})`;
+                    appendMessage('assistant', `⚠️ Failed to connect: ${errMsg}`);
+                    sendBtn.disabled = false;
+                    return;
+                }
+
+                // Prepare empty bubble for assistant tokens
+                const assistantBubbleId = appendEmptyBubble();
+                const assistantBubble = document.querySelector(`#${assistantBubbleId} .bubble`);
+
+                // Stream response using ReadableStream Reader
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+                let fullAnswer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Hold partial line in buffer
+
+                    for (const line of lines) {
+                        const cleanLine = line.trim();
+                        if (!cleanLine.startsWith('data: ')) continue;
+
+                        const dataStr = cleanLine.substring(6).trim();
+                        if (dataStr === '[DONE]') break;
+
+                        try {
+                            const parsed = JSON.parse(dataStr);
+                            if (parsed.sources) {
+                                renderSources(assistantBubbleId, parsed.sources);
+                            } else if (parsed.content) {
+                                fullAnswer += parsed.content;
+                                updateBubbleContent(assistantBubble, fullAnswer);
+                            }
+                        } catch (e) {
+                            // Ignore parsing errors of partial streams
+                        }
+                    }
+                }
+            } catch (err) {
+                removeLoadingBubble(loadingBubbleId);
+                appendMessage('assistant', `❌ Connection Error: Ensure backend is running and URL is reachable. Details: ${err.message}`);
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        function appendMessage(role, text, sources = []) {
+            const row = document.createElement('div');
+            row.className = `message-row ${role}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            
+            const formattedText = text.replace(/&/g, "&amp;")
+                                      .replace(/</g, "&lt;")
+                                      .replace(/>/g, "&gt;")
+                                      .replace(/\n/g, "<br>");
+            bubble.innerHTML = formattedText;
+
+            row.appendChild(bubble);
+            chatMessages.appendChild(row);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            if (sources.length > 0) {
+                const bubbleId = 'msg-' + Date.now();
+                row.id = bubbleId;
+                renderSources(bubbleId, sources);
+            }
+        }
+
+        function appendEmptyBubble() {
+            const bubbleId = 'msg-' + Date.now();
+            const row = document.createElement('div');
+            row.className = 'message-row assistant';
+            row.id = bubbleId;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.innerHTML = '';
+
+            row.appendChild(bubble);
+            chatMessages.appendChild(row);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return bubbleId;
+        }
+
+        function updateBubbleContent(bubbleElement, text) {
+            const formattedText = text.replace(/&/g, "&amp;")
+                                      .replace(/</g, "&lt;")
+                                      .replace(/>/g, "&gt;")
+                                      .replace(/\n/g, "<br>");
+            const sourcesBox = bubbleElement.querySelector('.sources-box');
+            bubbleElement.innerHTML = formattedText;
+            if (sourcesBox) {
+                bubbleElement.appendChild(sourcesBox);
+            }
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function renderSources(bubbleId, sources) {
+            const bubbleElement = document.querySelector(`#${bubbleId} .bubble`);
+            if (!bubbleElement || !sources || sources.length === 0) return;
+
+            const existing = bubbleElement.querySelector('.sources-box');
+            if (existing) existing.remove();
+
+            const sourcesBox = document.createElement('div');
+            sourcesBox.className = 'sources-box';
+            sources.forEach(src => {
+                const tag = document.createElement('span');
+                tag.className = 'source-tag';
+                tag.innerText = src;
+                sourcesBox.appendChild(tag);
+            });
+            bubbleElement.appendChild(sourcesBox);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function appendLoadingBubble() {
+            const bubbleId = 'loading-' + Date.now();
+            const row = document.createElement('div');
+            row.className = 'message-row assistant';
+            row.id = bubbleId;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.innerHTML = `
+                <div class="loading-dots">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+            `;
+
+            row.appendChild(bubble);
+            chatMessages.appendChild(row);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return bubbleId;
+        }
+
+        function removeLoadingBubble(id) {
+            const bubble = document.getElementById(id);
+            if (bubble) {
+                bubble.remove();
+            }
+        }
+    </script>
+</body>
+</html>
