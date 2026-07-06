@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     nvidia_api_key: str = ""
     nvidia_api_base: str = "https://integrate.api.nvidia.com/v1"
+    pollinations_api_key: str = ""
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

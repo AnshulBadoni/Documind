@@ -286,6 +286,7 @@ class LLMService:
         print("Switching to backup model: Pollinations AI...")
         try:
             api_key = (
+                settings.pollinations_api_key or
                 os.getenv("POLLINATIONS_API_KEY") or
                 os.getenv("POLLINATION_API_KEY") or
                 os.getenv("OPENAI_API_KEY") or
@@ -297,6 +298,10 @@ class LLMService:
             client = OpenAI(
                 base_url="https://gen.pollinations.ai/v1",
                 api_key=api_key,
+            )
+            response = client.chat.completions.create(
+                model="openai",
+                messages=[{"role": "user", "content": "Hello!"}]
             )
             messages = []
             if system_instruction:
