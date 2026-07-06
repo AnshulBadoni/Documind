@@ -128,10 +128,13 @@ class AnalysisService:
                 ExclusionModel.project_id == project_id
             ).all()
             exclusion_patterns = [exc.pattern for exc in exclusions]
-            # Default exclusions
+            # Default exclusions (centralized robust list)
             exclusion_patterns.extend([
                 "node_modules", "dist", "build", ".git", ".venv", "venv",
-                "__pycache__", "*.pyc", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico"
+                "__pycache__", "*.pyc", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico",
+                "tests", "test", "__tests__", "spec", "docs", "*.md", "*.rst",
+                ".github", ".gitlab", ".idea", ".vscode", "target", ".next", ".nuxt",
+                "package-lock.json", "yarn.lock", "poetry.lock", "*_pb2.py", "generated"
             ])
 
             # 3. Read and Parse AST of files
@@ -166,11 +169,14 @@ class AnalysisService:
         parsed_files = []
         print(f"Scanning codebase under directory: {repo_path}...")
 
+        # Centralize standard directory name exclusions to skip walking them entirely
+        SKIP_DIR_NAMES = {"node_modules", "dist", "build", ".git", ".venv", "venv", "__pycache__", "tests", "test", "__tests__", "spec", "docs", ".github", ".gitlab", ".idea", ".vscode", "target", ".next", ".nuxt", "generated"}
+
         for root, dirs, files in os.walk(repo_path):
-            # Apply exclusion patterns to directory names
+            # Prune dirs in-place to avoid descending into noise directories
             dirs[:] = [
                 d for d in dirs
-                if not any(fnmatch.fnmatch(d, pat) or fnmatch.fnmatch(os.path.join(root, d), pat) for pat in exclusion_patterns)
+                if d not in SKIP_DIR_NAMES and not any(fnmatch.fnmatch(d, pat) or fnmatch.fnmatch(os.path.join(root, d), pat) for pat in exclusion_patterns)
             ]
 
             for file in files:
@@ -197,8 +203,9 @@ class AnalysisService:
 
                 try:
                     print(f"Loading file: {rel_path}...")
+                    # Read up to 1MB to avoid memory blow-up on massive/generated files
                     with open(abs_file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        code_bytes = f.read().encode("utf-8")
+                        code_bytes = f.read(1024 * 1024).encode("utf-8")
 
                     ast_summary = {"imports": [], "classes": [], "functions": []}
                     if parser:
@@ -225,7 +232,6 @@ class AnalysisService:
         functions = []
 
         def traverse(node: tree_sitter.Node):
-            # Check node types for TS/JS and Python
             node_type = node.type
             if "import" in node_type or node_type == "import_statement" or node_type == "import_from_statement":
                 try:
@@ -233,7 +239,6 @@ class AnalysisService:
                 except:
                     pass
             elif node_type in ("class_definition", "class_declaration"):
-                # Find class name
                 name_node = node.child_by_field_name("name")
                 name = code_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8") if name_node else "UnknownClass"
                 classes.append(name)
@@ -253,46 +258,72 @@ class AnalysisService:
         }
 
     def _classify_project_type(self, files_data: List[Dict[str, Any]]) -> str:
-        """Classify project type as backend, frontend, fullstack, ml_ai, or mobile."""
-        has_frontend = False
-        has_backend = False
-        has_ml = False
-        has_mobile = False
+        """Classify project type using weighted signal confidence heuristics."""
+        import re
+        from pathlib import Path
 
+        # Exclude tests/docs from classification signals
+        NOISE_DIRS = {"tests", "test", "docs", "migrations", "alembic", ".github", ".gitlab"}
+        filtered_files = []
         for file in files_data:
+            path_parts = Path(file["file_path"].lower()).parts
+            if not any(part in NOISE_DIRS or part.startswith("test_") or part.endswith("_test") for part in path_parts):
+                filtered_files.append(file)
+
+        mobile_score = 0.0
+        frontend_score = 0.0
+        ml_score = 0.0
+        backend_score = 0.0
+
+        for file in filtered_files:
             path = file["file_path"].lower()
             code = file["raw_code"].lower()
-            
-            # Heuristics for mobile
-            if any(x in path for x in ("androidmanifest.xml", "info.plist", "pubspec.yaml", "app.json", "xcodeproj", "app.js", "app.tsx")):
-                has_mobile = True
 
-            # Heuristics for frontend
-            if any(x in path for x in ("package.json", "next.config", "vite.config", "webpack", "public/", "src/components", "src/pages")):
-                has_frontend = True
-            if any(x in path for x in (".html", ".css", ".scss", ".jsx", ".tsx")):
-                has_frontend = True
+            # Mobile indicators
+            if any(x in path for x in ("androidmanifest.xml", "info.plist", "pubspec.yaml")):
+                mobile_score += 2.0
+            if "app.json" in path or "xcodeproj" in path:
+                mobile_score += 1.5
 
-            # Heuristics for ML
-            if any(x in path for x in (".ipynb", "train", "dataset")):
-                has_ml = True
-            if any(x in code for x in ("torch", "tensorflow", "sklearn", "keras", "transformers")):
-                has_ml = True
+            # Frontend indicators
+            if any(x in path for x in ("package.json", "next.config", "vite.config", "webpack.config")):
+                frontend_score += 2.0
+            if any(path.endswith(ext) for ext in (".jsx", ".tsx", ".html", ".css", ".scss")):
+                frontend_score += 1.0
+            if "src/components" in path or "src/pages" in path:
+                frontend_score += 1.0
 
-            # Heuristics for backend
-            if any(x in path for x in ("requirements.txt", "pipfile", "pom.xml", "go.mod", "dockerfile", "server.ts", "app.py", "main.py")):
-                if not has_frontend:
-                    has_backend = True
-            if any(x in code for x in ("fastapi", "flask", "django", "express", "mongoose", "sqlalchemy", "cors")):
-                has_backend = True
+            # ML / AI indicators
+            if path.endswith(".ipynb") or "dataset" in path:
+                ml_score += 2.0
+            if any(re.search(rf"\b{re.escape(pkg)}\b", code) for pkg in ("torch", "tensorflow", "sklearn", "keras", "transformers")):
+                ml_score += 1.5
 
-        if has_mobile:
+            # Backend indicators
+            if any(x in path for x in ("requirements.txt", "pipfile", "pom.xml", "go.mod", "cargo.toml", "dockerfile")):
+                backend_score += 1.5
+            if any(re.search(rf"\b{re.escape(pkg)}\b", code) for pkg in ("fastapi", "flask", "django", "express", "mongoose", "sqlalchemy")):
+                backend_score += 1.5
+
+        # Decision tree based on weighted scores
+        scores = {
+            "mobile": mobile_score,
+            "ml_ai": ml_score,
+            "frontend": frontend_score,
+            "backend": backend_score
+        }
+        highest = max(scores, key=scores.get)
+
+        if scores[highest] < 1.0:
+            return "backend"  # default fallback
+
+        if highest == "mobile":
             return "mobile"
-        elif has_ml:
+        elif highest == "ml_ai":
             return "ml_ai"
-        elif has_frontend and has_backend:
+        elif frontend_score >= 1.5 and backend_score >= 1.5:
             return "fullstack"
-        elif has_frontend:
+        elif highest == "frontend":
             return "frontend"
         else:
             return "backend"
@@ -720,63 +751,170 @@ class AnalysisService:
             print(f"Successfully saved technology stack: {tech_stack}")
 
     def _calculate_project_stats(self, files_data: List[Dict[str, Any]], project_type: str) -> Dict[str, Any]:
-        """Calculate counts for files, lines of code, classes, functions, routes, models, services, etc."""
-        total_files = len(files_data)
-        total_loc = sum(len(f["raw_code"].splitlines()) for f in files_data)
-        total_functions = sum(len(f["ast"]["functions"]) for f in files_data)
-        total_classes = sum(len(f["ast"]["classes"]) for f in files_data)
+        """Calculate counts for files, lines of code, classes, functions, routes, models, etc. using AST hints."""
+        from pathlib import Path
+
+        # Exclude directories / files that are noise
+        NOISE_DIRS = {"tests", "test", "docs", "migrations", "alembic", ".github", ".gitlab", "venv", ".venv", "node_modules", "dist", "build"}
         
-        is_route_file = lambda path: any(x in path.lower() for x in ["route", "controller", "endpoint", "handler", "/api/"]) or path.lower().startswith("api/")
-        
-        stats = {
+        filtered_files = []
+        for file in files_data:
+            path_parts = Path(file["file_path"].lower()).parts
+            # If any part of the path is in noise directories, skip it
+            if any(part in NOISE_DIRS or part.startswith("test_") or part.endswith("_test") for part in path_parts):
+                continue
+            filtered_files.append(file)
+
+        total_files = len(filtered_files)
+        total_loc = sum(len(f["raw_code"].splitlines()) for f in filtered_files)
+        total_functions = sum(len(f["ast"]["functions"]) for f in filtered_files)
+        total_classes = sum(len(f["ast"]["classes"]) for f in filtered_files)
+
+        routes_count = 0
+        services_count = 0
+        models_count = 0
+        pages_count = 0
+        components_count = 0
+        datasets_count = 0
+
+        for file in filtered_files:
+            path = file["file_path"].lower()
+            code = file["raw_code"].lower()
+            ast = file.get("ast", {})
+            classes = ast.get("classes", [])
+            functions = ast.get("functions", [])
+            imports = ast.get("imports", [])
+
+            # Route counting: Functions in files containing route decorations, or explicitly mapped routes
+            is_route_file = any(x in path for x in ("route", "controller", "endpoint", "handler", "/api/")) or path.startswith("api/")
+            has_route_imports = any("fastapi" in imp.lower() or "apirouter" in imp.lower() or "blueprint" in imp.lower() or "express" in imp.lower() for imp in imports)
+            if is_route_file or has_route_imports:
+                # Count functions in controllers / routers as routes
+                routes_count += len(functions)
+
+            # Model counting: Classes in files matching model/schema, or importing SQLAlchemy/Pydantic
+            is_model_file = any(x in path for x in ("model", "schema", "db", "entity"))
+            has_model_imports = any("sqlalchemy" in imp.lower() or "pydantic" in imp.lower() or "declarative_base" in imp.lower() or "drizzle" in imp.lower() or "mongoose" in imp.lower() for imp in imports)
+            if is_model_file or has_model_imports:
+                models_count += len(classes)
+
+            # Service layer counting
+            if "service" in path or "logic" in path:
+                services_count += 1
+
+            # Page/Screen counting
+            if any(x in path for x in ("page", "screen", "view")):
+                pages_count += 1
+
+            # Components counting (avoiding tests and packages)
+            if any(x in path for x in ("component", "widget", "ui")):
+                components_count += 1
+
+            # Datasets counting
+            if "dataset" in path or "data" in path or path.endswith(".ipynb"):
+                datasets_count += 1
+
+        return {
             "files": total_files,
             "lines_of_code": total_loc,
             "functions": total_functions,
             "classes": total_classes,
-            "routes": sum(len(f["ast"]["functions"]) for f in files_data if "route" in f["file_path"].lower() or is_route_file(f["file_path"])),
-            "services": sum(1 for f in files_data if "service" in f["file_path"].lower() or "handler" in f["file_path"].lower()),
-            "models": sum(len(f["ast"]["classes"]) for f in files_data if "model" in f["file_path"].lower() or "schema" in f["file_path"].lower()),
-            "pages": sum(1 for f in files_data if "page" in f["file_path"].lower() or "screen" in f["file_path"].lower()),
-            "components": sum(1 for f in files_data if "component" in f["file_path"].lower() or "widget" in f["file_path"].lower()),
-            "datasets": sum(1 for f in files_data if "dataset" in f["file_path"].lower() or "data" in f["file_path"].lower()),
+            "routes": routes_count,
+            "services": services_count,
+            "models": models_count,
+            "pages": pages_count,
+            "components": components_count,
+            "datasets": datasets_count,
         }
 
-        return stats
-
     def _extract_technology_stack(self, files_data: List[Dict[str, Any]]) -> List[str]:
-        """Analyze imports, packages, and code context to detect technologies used."""
-        stack = set()
+        """Analyze imports, packages, and code context to detect technologies used with high accuracy."""
+        import re
+        from pathlib import Path
+
+        # Exclude directories / files that are noise
+        NOISE_DIRS = {"tests", "test", "docs", "migrations", "alembic", ".github", ".gitlab", "venv", ".venv", "node_modules", "dist", "build"}
+        
+        filtered_files = []
         for file in files_data:
+            path_parts = Path(file["file_path"].lower()).parts
+            # If any part of the path is in noise directories, skip it
+            if any(part in NOISE_DIRS or part.startswith("test_") or part.endswith("_test") for part in path_parts):
+                continue
+            filtered_files.append(file)
+
+        # Mapping of import packages or dependency names to display tech names
+        # Note: keys are lowercase package/module names to search for with word boundaries
+        PACKAGE_TO_TECH = {
+            "fastapi": "FastAPI",
+            "flask": "Flask",
+            "django": "Django",
+            "express": "Express",
+            "pymongo": "MongoDB",
+            "motor": "MongoDB",
+            "mongodb": "MongoDB",
+            "sqlalchemy": "SQLAlchemy (implies PostgreSQL/MySQL/SQLite)",
+            "postgresql": "PostgreSQL",
+            "postgres": "PostgreSQL",
+            "psycopg2": "PostgreSQL",
+            "psycopg": "PostgreSQL",
+            "sqlite3": "SQLite",
+            "sqlite": "SQLite",
+            "redis": "Redis",
+            "boto3": "AWS S3",
+            "slack_sdk": "Slack",
+            "slack": "Slack",
+            "react": "React",
+            "vue": "Vue",
+            "angular": "Angular",
+            "next": "Next.js",
+            "torch": "PyTorch",
+            "tensorflow": "TensorFlow",
+            "sklearn": "Scikit-Learn",
+            "scikit-learn": "Scikit-Learn",
+        }
+
+        # Scan for dependency manifests first (strong signals)
+        manifest_techs = set()
+        for file in filtered_files:
+            fname = Path(file["file_path"]).name.lower()
+            if fname in {"requirements.txt", "package.json", "pyproject.toml", "go.mod", "cargo.toml", "pom.xml"}:
+                code = file["raw_code"].lower()
+                for pkg, tech in PACKAGE_TO_TECH.items():
+                    # Word boundary search to avoid sub-string matches like "fastapi_utils" matching "fastapi"
+                    # or other common naming overlaps.
+                    if re.search(rf"\b{re.escape(pkg)}\b", code):
+                        manifest_techs.add(tech)
+
+        # Scan for code imports / configurations (secondary signals)
+        import_techs = set()
+        for file in filtered_files:
+            file_path = file["file_path"].lower()
             code = file["raw_code"].lower()
-            path = file["file_path"].lower()
-            
-            # Simple keyword matching to find technologies
-            if "fastapi" in code or "fastapi" in path: stack.add("FastAPI")
-            if "flask" in code or "flask" in path: stack.add("Flask")
-            if "django" in code or "django" in path: stack.add("Django")
-            if "express" in code or "express" in path: stack.add("Express")
-            if "pymongo" in code or "motor" in code or "mongodb" in code: stack.add("MongoDB")
-            if "sqlalchemy" in code or "postgres" in code or "psycopg" in code: stack.add("PostgreSQL")
-            if "sqlite" in code: stack.add("SQLite")
-            if "redis" in code: stack.add("Redis")
-            if "boto3" in code or "aws" in code: stack.add("AWS S3")
-            if "slack" in code: stack.add("Slack")
-            if "dockerfile" in path or "docker-compose" in path: stack.add("Docker")
-            # React detection: check package.json dependencies or explicit source imports
-            if path.endswith("package.json"):
-                if any(dep in code for dep in ["\"react\"", "\"react-dom\"", "\"react-native\""]):
-                    stack.add("React")
-            elif path.endswith((".js", ".jsx", ".ts", ".tsx")):
-                if any(imp in code for imp in ["import react", "from 'react'", 'from "react"', 'require("react")', "require('react')"]):
-                    stack.add("React")
-            if "vue" in code or "vue" in path: stack.add("Vue")
-            if "angular" in code or "angular" in path: stack.add("Angular")
-            if "next.config" in path: stack.add("Next.js")
-            if "torch" in code: stack.add("PyTorch")
-            if "tensorflow" in code: stack.add("TensorFlow")
-            if "sklearn" in code or "scikit-learn" in code: stack.add("Scikit-Learn")
-            
-        return list(stack)
+
+            # Inspect AST-parsed imports or explicit statements
+            ast_imports = file.get("ast", {}).get("imports", [])
+            for imp in ast_imports:
+                imp_lower = imp.lower()
+                for pkg, tech in PACKAGE_TO_TECH.items():
+                    if re.search(rf"\b{re.escape(pkg)}\b", imp_lower):
+                        import_techs.add(tech)
+
+            # Extra specific checks
+            if file_path.endswith("package.json"):
+                for pkg, tech in [("react", "React"), ("vue", "Vue"), ("angular", "Angular"), ("next", "Next.js"), ("express", "Express")]:
+                    if re.search(rf'"{re.escape(pkg)}"', code):
+                        import_techs.add(tech)
+
+            if "dockerfile" in file_path or "docker-compose" in file_path:
+                import_techs.add("Docker")
+
+        # Combine results:
+        # If we have manifests (requirements.txt, package.json etc.), prioritize them
+        if manifest_techs:
+            return list(manifest_techs)
+        
+        return list(import_techs)
 
     def _save_project_doc(self, project_id: int, doc_type: str, title: str, content: str, embed: bool) -> None:
         """Embed and save project level documents."""
