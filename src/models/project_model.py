@@ -44,16 +44,16 @@ class ProjectModel(Base):
     # Relationships
     owner: Mapped["UserModel"] = relationship("UserModel", back_populates="projects")
     entries: Mapped[list["EntryModel"]] = relationship(
-        "EntryModel", back_populates="project"
+        "EntryModel", back_populates="project", cascade="all, delete-orphan"
     )
     exclusions: Mapped[list["ExclusionModel"]] = relationship(
-        "ExclusionModel", back_populates="project"
+        "ExclusionModel", back_populates="project", cascade="all, delete-orphan"
     )
     analysis_runs: Mapped[list["AnalysisRunModel"]] = relationship(
-        "AnalysisRunModel", back_populates="project"
+        "AnalysisRunModel", back_populates="project", cascade="all, delete-orphan"
     )
     code_documents: Mapped[list["CodeDocumentModel"]] = relationship(
-        "CodeDocumentModel", back_populates="project"
+        "CodeDocumentModel", back_populates="project", cascade="all, delete-orphan"
     )
     shares: Mapped[list["ProjectShareModel"]] = relationship(
         "ProjectShareModel", back_populates="project", cascade="all, delete-orphan"
