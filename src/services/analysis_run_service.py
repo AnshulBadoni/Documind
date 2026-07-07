@@ -112,6 +112,8 @@ class AnalysisRunService:
             triggered_by=user_id,
             started_at=datetime.datetime.now(datetime.timezone.utc),
         )
+        # Store force_regenerate attribute on the model instance (or dynamically attach it)
+        setattr(analysis_run, "force_regenerate", payload.force_regenerate)
         try:
             self.db.add(analysis_run)
             self.db.commit()

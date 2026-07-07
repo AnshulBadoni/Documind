@@ -50,7 +50,7 @@ class AnalysisService:
         self.db = db
         self.llm = LLMService()
 
-    def run_analysis(self, project_id: int, entry_id: int | None = None, access_token: str | None = None) -> None:
+    def run_analysis(self, project_id: int, entry_id: int | None = None, access_token: str | None = None, force_regenerate: bool = False) -> None:
         """Fully analyze a project repository and index it into pgvector.
 
         Clones the repository, parses ASTs, generates summaries, API routes,
@@ -61,6 +61,7 @@ class AnalysisService:
             entry_id: Optional entry primary key. If omitted, the first entry is used.
             access_token: Optional personal access token for private repositories.
                           Used only during cloning and never persisted.
+            force_regenerate: If True, willy-nilly delete existing docs and chunks for a clean analysis.
         """
         project = self.db.query(ProjectModel).filter(ProjectModel.id == project_id).first()
 
@@ -99,6 +100,10 @@ class AnalysisService:
             run.started_at = datetime.now(timezone.utc)
             self.db.commit()
             self.db.refresh(run)
+
+        # Store force_regenerate state dynamically on analysis run model if present
+        if run and getattr(run, "force_regenerate", False):
+            force_regenerate = True
 
         # 1. Clone repository to temp directory
         # Build authenticated URL for private repos by embedding the token
@@ -141,7 +146,7 @@ class AnalysisService:
             files_data = self._scan_and_parse_repo(temp_dir, exclusion_patterns)
 
             # 4. Generate & Save Documentation Chunks
-            self._generate_and_save_docs(project_id, files_data, entry.entry_point_files, entry.repository_url)
+            self._generate_and_save_docs(project_id, files_data, entry.entry_point_files, entry.repository_url, force_regenerate=force_regenerate)
 
             if run:
                 run.status = AnalysisStatus.COMPLETED
@@ -362,7 +367,7 @@ class AnalysisService:
         
         return "\n\n".join(context_snippets) if context_snippets else ""
 
-    def _generate_and_save_docs(self, project_id: int, files_data: List[Dict[str, Any]], entry_point_files: str | None, repo_url: str | None = None) -> None:
+    def _generate_and_save_docs(self, project_id: int, files_data: List[Dict[str, Any]], entry_point_files: str | None, repo_url: str | None = None, force_regenerate: bool = False) -> None:
         """Use the selected LLM provider (or local fallback) to construct project-type-specific documentation."""
         from src.config import get_settings
         settings = get_settings()
@@ -400,7 +405,7 @@ class AnalysisService:
             AnalysisRunModel.status != AnalysisStatus.RUNNING
         ).order_by(AnalysisRunModel.created_at.desc()).first()
 
-        is_resume = last_run is not None and last_run.status == AnalysisStatus.FAILED
+        is_resume = last_run is not None and last_run.status == AnalysisStatus.FAILED and not force_regenerate
         
         existing_docs = {}
         if is_resume:

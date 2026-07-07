@@ -20,6 +20,7 @@ class AnalysisRunCreate(BaseModel):
     """Schema for creating a new analysis run."""
 
     entry_id: int | None = Field(default=None, description="Specific entry to analyze, or None for all entries")
+    force_regenerate: bool = Field(default=False, description="Wipe existing documents and run a fresh analysis/regeneration")
 
 
 class AnalysisRunUpdate(BaseModel):

@@ -71,7 +71,9 @@ class AnalysisRunController:
                 background_tasks.add_task(
                     analyzer.run_analysis,
                     project_id,
-                    run.entry_id
+                    run.entry_id,
+                    None,
+                    payload.force_regenerate
                 )
             return ResponseDto.ok(
                 status=201,
